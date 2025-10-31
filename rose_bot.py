@@ -1,22 +1,19 @@
-import telegram
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
-import requests
-import json
 import os
+import telegram
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
+import requests
 import logging
 
-# تنظیم لاگ
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-
-# گرفتن توکن از متغیرهای محیطی
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
-DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY')
+# تنظیمات
+BOT_TOKEN = os.environ['BOT_TOKEN']
+DEEPSEEK_API_KEY = os.environ['DEEPSEEK_API_KEY']
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 
-def get_deepseek_response(user_message, user_name):
+# لاگ‌گیری
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+async def get_deepseek_response(user_message, user_name):
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
         "Content-Type": "application/json"
@@ -63,7 +60,7 @@ def get_deepseek_response(user_message, user_name):
     except Exception as e:
         return f"عزیزم {user_name}! الان نتونستم درست جواب بدم... یه لحظه دیگه امتحان کن 🌸"
 
-def start(update, context):
+async def start(update, context):
     welcome_text = f"""
 🌸 سلام عزیزان! من رُزم!
 
@@ -77,47 +74,47 @@ def start(update, context):
 
 فقط کافیه باهات حرف بزنی {update.message.from_user.first_name} جان!
 """
-    update.message.reply_text(welcome_text)
+    await update.message.reply_text(welcome_text)
 
-def handle_group_message(update, context):
+async def handle_group_message(update, context):
     if update.message.chat.type in ['group', 'supergroup']:
-        if update.message.reply_to_message or update.message.from_user.is_bot:
+        # اگر پیام ریپلای بود یا از خود بات هست، پردازش نکن
+        if update.message.reply_to_message or (update.message.from_user and update.message.from_user.is_bot):
             return
         
         user_message = update.message.text
         user_name = update.message.from_user.first_name
-        message_id = update.message.message_id
+        
+        logger.info(f"📨 پیام از {user_name}: {user_message}")
         
         # نمایش "در حال تایپ..."
-        update.message.chat.send_action(action="typing")
+        await update.message.chat.send_action(action="typing")
         
         # دریافت پاسخ از DeepSeek
-        rose_response = get_deepseek_response(user_message, user_name)
+        rose_response = await get_deepseek_response(user_message, user_name)
         
-        # ارسال پاسخ با ریپلای
-        update.message.reply_text(
-            rose_response,
-            reply_to_message_id=message_id
-        )
+        logger.info(f"📤 پاسخ رُز: {rose_response}")
+        
+        # ارسال پاسخ (بدون ریپلای)
+        await update.message.reply_text(rose_response)
+
+async def error_handler(update, context):
+    logger.error(f"خطا در پردازش پیام: {context.error}")
 
 def main():
-    try:
-        updater = Updater(BOT_TOKEN, use_context=True)
-        dp = updater.dispatcher
-        
-        dp.add_handler(CommandHandler("start", start))
-        dp.add_handler(MessageHandler(
-            Filters.text & ~Filters.command & 
-            (Filters.chat_type.groups | Filters.chat_type.supergroup),
-            handle_group_message
-        ))
-        
-        print("🌹 رُز روی سرور فعال شد!")
-        updater.start_polling()
-        updater.idle()
-        
-    except Exception as e:
-        print(f"خطا در اجرای بات: {e}")
+    application = Application.builder().token(BOT_TOKEN).build()
+    
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & 
+        (filters.ChatType.GROUP | filters.ChatType.SUPERGROUP),
+        handle_group_message
+    ))
+    
+    application.add_error_handler(error_handler)
+    
+    logger.info("🌹 رُز روی سرور فعال شد!")
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
